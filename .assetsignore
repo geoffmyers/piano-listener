@@ -1,0 +1,15 @@
+wrangler.toml
+.assetsignore
+.DS_Store
+.claude/
+.wrangler/
+node_modules/
+package.json
+package-lock.json
+tests/
+# Repository documentation, not part of the site
+README.md
+LICENSE.md
+CONTRIBUTING.md
+ARCHITECTURE.md
+docs/

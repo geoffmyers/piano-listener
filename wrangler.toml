@@ -1,0 +1,14 @@
+name = "piano-listener"
+account_id = "7e793f1777bb69fba01518e6c38c7ec0"
+compatibility_date = "2025-01-10"
+
+routes = [
+  { pattern = "piano-listener.geoffmyers.com", custom_domain = true }
+]
+
+[assets]
+directory = "./"
+not_found_handling = "none"
+
+[observability]
+enabled = true
