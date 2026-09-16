@@ -18,15 +18,27 @@ Then open <http://localhost:8000>. Any static file server works.
 
 ## Checks
 
-The detection tests synthesise piano audio and score what the detector
-finds. Run them before and after any change to `dsp.js`, and say in the pull
-request how the scores moved:
+<!-- CHECKS:START -->
+Every push and pull request runs these checks in GitHub Actions
+([`.github/workflows/checks.yml`](.github/workflows/checks.yml)), and every release has passed them.
+To run one yourself, use the same commands from the directory shown.
+
+**site** (Node.js 22, from the repository root):
+
+Every local file a page refers to exists, every script (inline or not) parses, and the Worker configuration deploys in a dry run with `npx wrangler@4 deploy --dry-run`; the script is in the workflow.
+
+**detection tests** (Node.js 22, from `tests/`):
 
 ```bash
-cd tests
-npm install
+npm ci
 npm test
 ```
+
+<!-- CHECKS:END -->
+
+The detection tests synthesise piano audio and score what the detector finds.
+Run them before and after any change to `dsp.js`, and say in the pull request
+how the scores moved.
 
 ## Before you open a pull request
 
