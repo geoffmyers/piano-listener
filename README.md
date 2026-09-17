@@ -113,30 +113,46 @@ There are seven scenarios: every key alone, chords, fast passages, loud and soft
 notes, the low register, the high register, and wide intervals. A scenario
 passes at F1 ≥ 0.8.
 
-With the current defaults, which are the best combination the sweep found,
-every scenario fails or warns:
+With the current defaults, one scenario passes and two more warn:
 
 | Scenario | F1 | Precision | Recall |
 |---|---|---|---|
-| Single Notes | 0.101 | 0.053 | 1.000 |
-| Chords | 0.216 | 0.121 | 1.000 |
-| Fast Passages | 0.581 | 0.410 | 1.000 |
-| Velocity Variations | 0.079 | 0.041 | 1.000 |
-| Low Register | 0.079 | 0.041 | 1.000 |
-| High Register | 0.218 | 0.123 | 1.000 |
-| Wide Intervals | 0.105 | 0.056 | 1.000 |
-| **All** | **0.139** | **0.075** | **1.000** |
+| Single Notes | 0.347 | 0.210 | 1.000 |
+| Chords | 0.280 | 0.167 | 0.867 |
+| Fast Passages | 0.794 | 0.658 | 1.000 |
+| Velocity Variations | 0.590 | 0.419 | 1.000 |
+| Low Register | 0.218 | 0.123 | 0.947 |
+| High Register | 1.000 | 1.000 | 1.000 |
+| Wide Intervals | 0.267 | 0.154 | 1.000 |
+| **All** | **0.396** | **0.248** | **0.972** |
 
-So it misses nothing, but about 12 of every 13 notes it reports were not
-played. Improving precision is the most useful contribution this project could
-get.
+`dsp.js` picks notes loudest-first and suppresses a quieter candidate sitting
+at one of a louder note's harmonic positions (`suppressHarmonics()`), then
+drops anything still far below the loudest note in the frame
+(`applyMinRelativeEnergy()`) — both tuned against this table, not guessed.
+Before those two passes, the detector missed nothing (recall 1.000) but
+reported about 12 of every 13 notes that were not played (precision 0.075,
+F1 0.139); after them it reports roughly 3 of every 4 correctly (precision
+0.248, F1 0.396) at a recall cost of 7 of 251 notes, concentrated in chords
+and the low register — a real piano's lowest strings are the densest in
+overtones, and a soft chord voice can legitimately sit below the frame's
+loudest note by more than `minRelativeEnergy` allows. Improving precision
+further, especially on Chords and Low Register, is the most useful
+contribution this project could get. Adding more HPS downsampling factors
+was tried ([2,3,4] and [2,3,4,5] against the current [2,3]) and made every
+scenario worse, not better — the extra passes sharpen a note's own octave
+and octave-plus-fifth harmonics faster than they sharpen its fundamental.
 
 ## Known limitations
 
 - **Precision**, as above.
-- **No offline mode.** The page builds a service worker from a `blob:` URL, but
-  browsers only register service workers served over HTTP(S), so the
-  registration fails silently and the page needs a connection.
+- **Offline mode.** `sw.js` is a same-origin service worker (registered as
+  `./sw.js`) that caches the app shell (`index.html`, `dsp.js`) on first visit
+  and serves it stale-while-revalidate, so a repeat visit works with no
+  connection. It used to be built from a `blob:` URL at runtime, but browsers
+  refuse to register a service worker from anything but a same-origin
+  HTTP(S) script — that registration failed silently on every browser, so
+  the page never actually worked offline until this became a real file.
 - The synthetic test piano is much simpler than a real one, so the scores are a
   guide, not a measurement of real-world accuracy.
 

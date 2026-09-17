@@ -58,9 +58,11 @@ they are the best combination found by the test sweep.
   kept in `localStorage`.
 - Canvases are drawn at the device pixel ratio.
 
-The page also builds a web app manifest and a service worker from `blob:` URLs.
-Browsers only register service workers served over HTTP(S), so the worker
-never installs; see *Known limitations* in the README.
+The page builds a web app manifest from a `blob:` URL at runtime, and
+registers `sw.js` — a real, same-origin service worker file — for offline
+caching of the app shell. It used to build the worker from a `blob:` URL too;
+browsers only register service workers served over HTTP(S), so that worker
+never installed. See *Known limitations* in the README.
 
 ## Tests (`tests/`)
 
@@ -78,6 +80,7 @@ never installs; see *Known limitations* in the README.
 | File | Purpose |
 |---|---|
 | `_headers` | `Content-Security-Policy` allowing only same-origin, inline and `blob:` sources, plus `nosniff`, `DENY` framing and a referrer policy |
+| `sw.js` | Service worker: caches `./`, `index.html` and `dsp.js` for offline use, stale-while-revalidate |
 | `wrangler.toml` | Worker `piano-listener`, custom domain, `assets.directory = "./"` |
 | `.assetsignore` | Keeps `tests/`, `package.json`, `wrangler.toml` and the repository docs off the site |
 | `package.json` | Only `"type": "module"`, so Node treats `dsp.js` as an ES module when the tests import it |

@@ -20,9 +20,29 @@ export const DEFAULTS = {
   sensitivity: 10,
   noiseGate: 0,
   holdTime: 300,
+  // A grid search over [2,3], [2,3,4] and [2,3,4,5] (tests/dsp-tune scripts,
+  // not committed — see the Detection tests table in README.md) found [2,3]
+  // still wins: the extra downsample passes sharpen octave/octave-fifth
+  // harmonics more than they sharpen the fundamental, so aggregate F1 got
+  // *worse* (0.40 -> ~0.30) every time a factor was added. Keep it at [2,3]
+  // unless a future change to suppressHarmonics() revisits this.
   hpsFactors: [2, 3],
   smoothingTimeConstant: 0.8,
-  hysteresisRatio: 0.2
+  hysteresisRatio: 0.2,
+  // How much of an accepted note's magnitude a candidate at one of its
+  // harmonic positions must reach to survive suppressHarmonics() below.
+  // Tuned against tests/run-tests.js: values from 0.4-0.8 all land within
+  // 0.01 F1 of each other, so 0.5 is picked as the middle of that plateau
+  // rather than over-fitting a specific value to synthetic audio.
+  harmonicSuppressionRatio: 0.5,
+  // A candidate note below this fraction of the loudest note magnitude in
+  // the same frame is treated as noise floor / harmonic residue rather than
+  // a played note. 0 disables it. This is the dominant lever of the two —
+  // sweeping it from 0 to 0.5 at a fixed harmonicSuppressionRatio moves
+  // aggregate F1 from 0.35 to ~0.40 and back down, peaking in the 0.3-0.4
+  // range; 0.35 is picked there. Above ~0.4 it starts trading away recall
+  // (quiet simultaneous notes look like harmonic residue of a louder one).
+  minRelativeEnergy: 0.35
 };
 
 /**
@@ -94,7 +114,101 @@ export function computeHPS(frequencyDataDB, fftSize, sampleRate, hpsFactors) {
     results.push({ midi: midi, magnitude: maxMag });
   }
 
+  results = suppressHarmonics(results, DEFAULTS.harmonicSuppressionRatio);
+  results = applyMinRelativeEnergy(results, DEFAULTS.minRelativeEnergy);
+
   return results;
+}
+
+// Semitone offsets of integer harmonics 2..8 above a fundamental
+// (12 * log2(h)): an octave, an octave and a fifth, two octaves, ...
+var HARMONIC_SEMITONE_OFFSETS = [12, 19.02, 24, 27.86, 31.02, 33.69, 36];
+
+/**
+ * Remove HPS "ghost" peaks that are really the overtones of a louder note.
+ *
+ * A real piano note's spectrum has energy at 2x, 3x, 4x... its fundamental
+ * frequency, and the Harmonic Product Spectrum only *attenuates* that energy
+ * relative to the fundamental — it does not zero it out, so a strong note
+ * still leaves smaller HPS peaks sitting at its own harmonic MIDI notes
+ * (an octave up, an octave and a fifth up, ...), which computeNoteStates()
+ * would otherwise report as separately played notes.
+ *
+ * This picks notes from loudest to quietest (the same order a listener would
+ * "hear out" a chord) and, for each one accepted as a peak, zeroes any
+ * quieter candidate sitting at one of its harmonic positions — the quieter
+ * one is far more likely to be that peak's overtone than an independent
+ * note. A candidate at a harmonic position that is comparably loud (>= the
+ * ratio) is left alone, since a real note at that pitch would produce HPS
+ * energy at least that strong on its own.
+ *
+ * @param {Array<{midi: number, magnitude: number}>} results - From the HPS/MIDI mapping above
+ * @param {number} ratio - 0-1; a candidate below peak.magnitude * ratio at a
+ *   harmonic position is suppressed
+ * @returns {Array<{midi: number, magnitude: number}>}
+ */
+export function suppressHarmonics(results, ratio) {
+  if (!ratio) return results;
+
+  var n = results.length;
+  var baseMidi = results[0].midi;
+  var mags = new Float32Array(n);
+  for (var i = 0; i < n; i++) mags[i] = results[i].magnitude;
+
+  var order = [];
+  for (var i = 0; i < n; i++) order.push(i);
+  order.sort(function(a, b) { return mags[b] - mags[a]; });
+
+  for (var oi = 0; oi < order.length; oi++) {
+    var pi = order[oi];
+    var peakMag = mags[pi];
+    if (peakMag <= 0) continue; // already suppressed, or silent to begin with
+    var peakMidi = baseMidi + pi;
+
+    for (var h = 0; h < HARMONIC_SEMITONE_OFFSETS.length; h++) {
+      var targetMidi = Math.round(peakMidi + HARMONIC_SEMITONE_OFFSETS[h]);
+      var ti = targetMidi - baseMidi;
+      if (ti < 0 || ti >= n) continue;
+      if (mags[ti] > 0 && mags[ti] < peakMag * ratio) {
+        mags[ti] = 0;
+      }
+    }
+  }
+
+  var out = new Array(n);
+  for (var i = 0; i < n; i++) out[i] = { midi: results[i].midi, magnitude: mags[i] };
+  return out;
+}
+
+/**
+ * Zero out any candidate note far quieter than the loudest note in the same
+ * frame. A note genuinely being played is either the loudest thing in the
+ * spectrum or comparable to it; something far below that is noise floor or
+ * harmonic residue that survived suppressHarmonics() (e.g. a harmonic
+ * position that happened to fall close enough to an unrelated, louder note
+ * to be skipped above).
+ *
+ * @param {Array<{midi: number, magnitude: number}>} results
+ * @param {number} minRatio - 0 disables this; otherwise 0-1 fraction of the
+ *   frame's loudest candidate
+ * @returns {Array<{midi: number, magnitude: number}>}
+ */
+export function applyMinRelativeEnergy(results, minRatio) {
+  if (!minRatio) return results;
+
+  var maxMag = 0;
+  for (var i = 0; i < results.length; i++) {
+    if (results[i].magnitude > maxMag) maxMag = results[i].magnitude;
+  }
+  if (maxMag <= 0) return results;
+
+  var threshold = maxMag * minRatio;
+  var out = new Array(results.length);
+  for (var i = 0; i < results.length; i++) {
+    var mag = results[i].magnitude;
+    out[i] = { midi: results[i].midi, magnitude: mag < threshold ? 0 : mag };
+  }
+  return out;
 }
 
 /**
